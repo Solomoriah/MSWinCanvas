@@ -37,11 +37,6 @@
 
     desc(printer) returns a dictionary containing the descriptive fields
     for the named printer.  
-
-    getfont(name, size) returns a win32ui font object for the named
-    font scaled to the given size.  Font substitution may have been
-    done by Windows, so don't be surprised if you don't get what you
-    asked for.
 """
 
 # "constants" for use with printer setup calls
@@ -65,21 +60,21 @@ scale_factor = 20
 prdict = None
 
 paper_sizes = {
-    "letter":       1,
-    "lettersmall":  2,
-    "tabloid":      3,
-    "ledger":       4,
-    "legal":        5,
-    "statement":    6,
-    "executive":    7,
-    "a3":           8,
-    "a4":           9,
-    "envelope9":   19,
-    "envelope10":  20,
-    "envelope11":  21,
-    "envelope12":  22,
-    "envelope14":  23,
-    "fanfold":     39,
+    "letter":       (1, (72*8.5, 72*11)),
+    "lettersmall":  (2, (72*8.5, 72*11)),
+    "tabloid":      (3, (72*11, 72*17)),
+    "ledger":       (4, (72*17, 72*11)),
+    "legal":        (5, (72*8.5, 72*14)),
+#    "statement":    (6, (
+    "executive":    (7, (72*7.25, 72*10.5)),
+#    "a3":           (8, (
+#    "a4":           (9, (
+#    "envelope9":    (19, (
+#    "envelope10":   (20, (
+#    "envelope11":   (21, (
+#    "envelope12":   (22, (
+#    "envelope14":   (23, (
+#    "fanfold":      (39, (
 }
 
 orientations = {
@@ -94,9 +89,11 @@ duplexes = {
     "short":        3,
 }
 
-class document:
+class Canvas:
 
-    def __init__(self, printer = None, papersize = None, orientation = None, duplex = None):
+    def __init__(self, printer = None, papersize = None, orientation = None, 
+            duplex = None, desc = "MSWinCanvas.py print job"):
+
         self.dc = None
         self.font = None
         self.printer = printer
@@ -104,17 +101,6 @@ class document:
         self.orientation = orientation
         self.page = 0
         self.duplex = duplex
-
-    def scalepos(self, pos):
-        rc = []
-        for i in range(len(pos)):
-            p = pos[i]
-            if i % 2:
-                p *= -1
-            rc.append(int(p * scale_factor))
-        return tuple(rc)
-
-    def begin_document(self, desc = "MSWinCanvas.py print job"):
 
         # open the printer
         if self.printer is None:
@@ -125,13 +111,20 @@ class document:
         devmode = win32print.GetPrinter(self.hprinter, 8)["pDevMode"]
 
         # change paper size and orientation
-        if self.papersize is not None:
-            if type(self.papersize) is int:
-                devmode.PaperSize = self.papersize
-            else:
-                devmode.PaperSize = paper_sizes[self.papersize]
-        if self.orientation is not None:
-            devmode.Orientation = orientations[self.orientation]
+
+        if self.papersize is None:
+            self.papersize = "letter"
+
+        devmode.PaperSize = paper_sizes[self.papersize][0]
+        self._pagesize = paper_sizes[self.papersize][1]
+
+        if self.orientation is None:
+            self.orientation = "portrait"
+
+        devmode.Orientation = orientations[self.orientation]
+        if self.orientation == "landscape":
+            self._pagesize = (self._pagesize[1], self._pagesize[0])
+
         if self.duplex is not None:
             devmode.Duplex = duplexes[self.duplex]
 
@@ -145,81 +138,76 @@ class document:
         # else:
         #     self.dc.CreatePrinterDC()
 
-        self.dc.SetMapMode(win32con.MM_TWIPS) # hundredths of inches
+        self.dc.SetMapMode(win32con.MM_TWIPS) # 1440 per inch
         self.dc.StartDoc(desc)
         self.pen = win32ui.CreatePen(0, int(scale_factor), 0L)
         self.dc.SelectObject(self.pen)
         self.page = 1
 
-    def end_document(self):
-        if self.page == 0:
-            return # document was never started
-        self.dc.EndDoc()
-        del self.dc
+    def drawAlignedString(self):
+        pass
 
-    def end_page(self):
+    def drawCentredString(self):
+        pass
+
+    def drawRightString(self):
+        pass
+
+    def drawString(self, x, y, text):
+        self.dc.TextOut(scale_factor * x,
+            -1 * scale_factor * y, text)
+
+    def line(self, from_x, from_y, to_x, to_y):
+        self.dc.MoveTo(self.scalepos((from_x, from_y)))
+        self.dc.LineTo(self.scalepos((to_x, to_y)))
+
+    def restoreState(self):
+        pass
+
+    def saveState(self):
+        pass
+
+    def setFont(self, name, size):
+        wt = 400
+        if name.endswith("-Bold"):
+            wt = 700
+            name = name[:-5]
+        self.font = win32ui.CreateFont({
+            "name": name,
+            "height": scale_factor * size,
+            "weight": wt,
+        })
+        self.dc.SelectObject(self.font)
+
+    def setLineWidth(self, height):
+        self.pen = win32ui.CreatePen(0, int(scale_factor*height), 0L)
+        self.dc.SelectObject(self.pen)
+
+    def setStrokeGray(self, gray):
+        pass
+
+    def showPage(self):
         if self.page == 0:
             return # nothing on the page
         self.dc.EndPage()
         self.page += 1
 
-    def getsize(self):
-        if self.page == 0:
-            self.begin_document()
-        # returns printable (width, height) in points
-        width = float(self.dc.GetDeviceCaps(HORZRES)) * (72.0 / self.dc.GetDeviceCaps(LOGPIXELSX))
-        height = float(self.dc.GetDeviceCaps(VERTRES)) * (72.0 / self.dc.GetDeviceCaps(LOGPIXELSY))
-        return width, height
-
-    def line(self, from_, to):
-        if self.page == 0:
-            self.begin_document()
-        self.dc.MoveTo(self.scalepos(from_))
-        self.dc.LineTo(self.scalepos(to))
-
-    def rectangle(self, box):
-        if self.page == 0:
-            self.begin_document()
-        self.dc.MoveTo(self.scalepos((box[0], box[1])))
-        self.dc.LineTo(self.scalepos((box[2], box[1])))
-        self.dc.LineTo(self.scalepos((box[2], box[3])))
-        self.dc.LineTo(self.scalepos((box[0], box[3])))
-        self.dc.LineTo(self.scalepos((box[0], box[1])))
-
-    def text(self, position, text):
-        if self.page == 0:
-            self.begin_document()
-        self.dc.TextOut(scale_factor * position[0],
-            -1 * scale_factor * position[1], text)
-
-    def setfont(self, name, size, bold = None):
-        if self.page == 0:
-            self.begin_document()
-        wt = 400
-        if bold:
-            wt = 700
-        self.font = getfont(name, size, wt)
-        self.dc.SelectObject(self.font)
-
-    def image(self, position, image, size):
-        "print PIL image at position with given size"
-        if ImageWin is None:
-            raise NotImplementedError, "PIL required for image method"
-        if self.page == 0:
-            self.begin_document()
-        dib = ImageWin.Dib(image)
-        endpos = (position[0] + size[0], position[1] + size[1])
-        dest = (position[0] * scale_factor, 
-               -1 * position[1] * scale_factor,
-               endpos[0] * scale_factor, 
-               -1 * endpos[1] * scale_factor)
-        dib.draw(self.hdc, dest)
-
-    def setink(self, ink):
+    def translate(self, *args):
         pass
 
-    def setfill(self, onoff):
-        pass
+    def scalepos(self, pos):
+        rc = []
+        for i in range(len(pos)):
+            p = pos[i]
+            rc.append(int(p * scale_factor))
+        return tuple(rc)
+
+    def close(self):
+        if self.page == 0:
+            return # document was never started
+        self.dc.EndDoc()
+        del self.dc
+
 
 def build_dict():
     global prdict
@@ -250,23 +238,5 @@ def desc(name):
         listprinters()
     return prdict[name]
 
-def getfont(name, size, weight = 400):
-    return win32ui.CreateFont({
-        "name": name,
-        "height": scale_factor * size,
-        "weight": weight,
-    })
-
-
-if __name__ == "__main__":
-
-    doc = document(orientation = "landscape")
-    doc.begin_document()
-    doc.setfont("Arial", 32)
-    doc.text((72, 72), "Testing...")
-    doc.text((72, 72+48), "Testing #2")
-    doc.rectangle((72, 72, 72*6, 72*3))
-    doc.line((72, 72), (72*6, 72*3))
-    doc.end_document()
 
 # end of file.
