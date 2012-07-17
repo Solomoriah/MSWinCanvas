@@ -19,11 +19,6 @@ first element of the list, and all other printers follow in alphabetical order.
 desc(printer) returns a dictionary containing the descriptive fields
 for the named printer.  
 
-getfont(name, size) returns a win32ui font object for the named
-font scaled to the given size.  Font substitution may have been
-done by Windows, so don't be surprised if you don't get what you
-asked for.
-
 Development versions of this module may be found on **Github** at:
 
 https://github.com/Solomoriah/MSWinCanvas
